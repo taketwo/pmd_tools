@@ -1,0 +1,13 @@
+<package>
+  <description brief="pmd_tools">
+
+  </description>
+  <author>Sergey Alexandrov</author>
+  <license>MIT</license>
+
+  <depend package="roscpp"/>
+  <depend package="pmd_camboard_nano"/>
+
+</package>
+
+
