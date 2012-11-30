@@ -9,6 +9,7 @@
   <depend package="pcl"/>
 
   <depend package="pmd_camboard_nano"/>
+  <depend package="hbrs_visualization"/>
 
 </package>
 
