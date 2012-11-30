@@ -6,6 +6,8 @@
   <license>MIT</license>
 
   <depend package="roscpp"/>
+  <depend package="pcl"/>
+
   <depend package="pmd_camboard_nano"/>
 
 </package>
