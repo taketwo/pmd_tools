@@ -11,6 +11,7 @@
 #include <pcl/filters/project_inliers.h>
 #include <pcl/surface/convex_hull.h>
 #include <pcl/segmentation/extract_polygonal_prism_data.h>
+#include <pcl/filters/radius_outlier_removal.h>
 
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/mean.hpp>
@@ -21,6 +22,7 @@
 #include "aliases.h"
 #include <planar_polygon_visualizer.h>
 #include <clustered_point_cloud_visualizer.h>
+#include <pmd_tools/PlaneFit.h>
 
 using namespace hbrs::visualization;
 
@@ -38,8 +40,11 @@ public:
     ss_.setMethodType(pcl::SAC_RANSAC);
     ss_.setDistanceThreshold(0.003);
     eppd_.setHeightLimits(-1.00, 1.00);
+    ror_.setRadiusSearch(0.01);
+    ror_.setMinNeighborsInRadius(16);
     pi_.setModelType(pcl::SACMODEL_NORMAL_PLANE);
     points_subscriber_ = nh_.subscribe<sensor_msgs::PointCloud2>("/camera/points", 1, boost::bind(&PlaneFitNode::pointsCallback, this, _1));
+    fit_publisher_ = nh_.advertise<pmd_tools::PlaneFit>("fit", 10);
   }
 
   void pointsCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
@@ -53,17 +58,17 @@ public:
     ss_.segment(*plane_inliers, *coefficients);
     if (plane_inliers->indices.size() == 0)
       return;
-    //PointCloud::Ptr filtered_inliers_cloud(new PointCloud);
-    //ror_.setInputCloud(input_cloud);
-    //ror_.setIndices(plane_inliers);
-    //ror_.filter(*filtered_inliers_cloud);
+    PointCloud::Ptr filtered_inliers_cloud(new PointCloud);
+    ror_.setInputCloud(input_cloud);
+    ror_.setIndices(plane_inliers);
+    ror_.filter(*filtered_inliers_cloud);
     Eigen::Vector4f coeff;
     memcpy(&coeff[0], &coefficients->values[0], coefficients->values.size() * sizeof(coefficients->values[0]));
 
     // Step 2: compute boundary points (convex hull)
     PointCloud::Ptr plane_cloud(new PointCloud);
-    pi_.setInputCloud(input_cloud);
-    pi_.setIndices(plane_inliers);
+    pi_.setInputCloud(filtered_inliers_cloud);
+    //pi_.setIndices(plane_inliers);
     pi_.setModelCoefficients(coefficients);
     pi_.filter(*plane_cloud);
     // Compute convex hull around boundary points
@@ -96,8 +101,14 @@ public:
       else
         inner_inlier_indices.indices.push_back(i);
     }
+    double var = boost::accumulators::moment<2>(d);
     double area = computePlanarPolygonArea(plane_polygon);
-    ROS_INFO("%.5f, %.7f, %.3f", boost::accumulators::mean(d), boost::accumulators::moment<2>(d), area);
+    ROS_INFO("%.5f, %.7f, %.3f", boost::accumulators::mean(d), var, area);
+    pmd_tools::PlaneFit fit;
+    fit.distance = coeff[3];
+    fit.variance = var;
+    fit.area = area;
+    fit_publisher_.publish(fit);
 
     // Visualization
     std::vector<PointCloud::Ptr> clusters;
@@ -139,15 +150,15 @@ private:
 
   ros::NodeHandle nh_;
   ros::Subscriber points_subscriber_;
+  ros::Publisher fit_publisher_;
 
   pcl::SACSegmentation<PointT> ss_;
   pcl::ExtractPolygonalPrismData<PointT> eppd_;
   pcl::ProjectInliers<PointT> pi_;
-  //pcl::RadiusOutlierRemoval<PointT> ror_;
+  pcl::RadiusOutlierRemoval<PointT> ror_;
 
   PlanarPolygonVisualizer polygon_visualizer_;
   ClusteredPointCloudVisualizer cluster_visualizer_;
-
 };
 
 int main(int argc, char** argv)
