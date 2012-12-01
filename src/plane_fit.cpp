@@ -38,75 +38,78 @@ public:
     ss_.setOptimizeCoefficients(true);
     ss_.setModelType(pcl::SACMODEL_PLANE);
     ss_.setMethodType(pcl::SAC_RANSAC);
-    ss_.setDistanceThreshold(0.003);
+    ss_.setDistanceThreshold(0.004);
     eppd_.setHeightLimits(-1.00, 1.00);
     ror_.setRadiusSearch(0.01);
     ror_.setMinNeighborsInRadius(16);
     pi_.setModelType(pcl::SACMODEL_NORMAL_PLANE);
+    ch_.setDimension(2);
     points_subscriber_ = nh_.subscribe<sensor_msgs::PointCloud2>("/camera/points", 1, boost::bind(&PlaneFitNode::pointsCallback, this, _1));
     fit_publisher_ = nh_.advertise<pmd_tools::PlaneFitResult>("fit", 10);
   }
 
   void pointsCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
   {
-    // Step 1: fit a plane
     PointCloud::Ptr input_cloud(new PointCloud);
-    pcl::fromROSMsg(*msg, *input_cloud);
-    pcl::ModelCoefficients::Ptr plane_coefficients(new pcl::ModelCoefficients);
+    PointCloud::Ptr filtered_plane_inliers_cloud(new PointCloud);
+    PointCloud::Ptr plane_cloud(new PointCloud);
+    PointCloud::Ptr plane_hull(new PointCloud);
+    pcl::ModelCoefficients::Ptr plane_model_coefficients(new pcl::ModelCoefficients);
     pcl::PointIndices::Ptr plane_model_inliers_indices(new pcl::PointIndices);
+    pcl::PointIndices::Ptr within_boundary_indices(new pcl::PointIndices);
+
+    // Step 0: convert ROS message into PCL object
+    pcl::fromROSMsg(*msg, *input_cloud);
+
+    // Step 1: fit a plane
     ss_.setInputCloud(input_cloud);
-    ss_.segment(*plane_model_inliers_indices, *plane_coefficients);
+    ss_.segment(*plane_model_inliers_indices, *plane_model_coefficients);
     if (plane_model_inliers_indices->indices.size() == 0)
       return;
-    PointCloud::Ptr filtered_plane_model_inliers_cloud(new PointCloud);
+
+    // Step 2: remove noisy points on the boundary with RadiusOutlierRemoval
     ror_.setInputCloud(input_cloud);
     ror_.setIndices(plane_model_inliers_indices);
-    ror_.filter(*filtered_plane_model_inliers_cloud);
-    Eigen::Vector4f coeff;
-    memcpy(&coeff[0], &plane_coefficients->values[0], plane_coefficients->values.size() * sizeof(plane_coefficients->values[0]));
+    ror_.filter(*filtered_plane_inliers_cloud);
 
-    // Step 2: compute boundary points (convex hull)
-    PointCloud::Ptr plane_cloud(new PointCloud);
-    pi_.setInputCloud(filtered_plane_model_inliers_cloud);
-    //pi_.setIndices(plane_model_inliers_indices);
-    pi_.setModelCoefficients(plane_coefficients);
+    // Step 3: project inliers on the plane and compute convex hull
+    pi_.setInputCloud(filtered_plane_inliers_cloud);
+    pi_.setModelCoefficients(plane_model_coefficients);
     pi_.filter(*plane_cloud);
-    // Compute convex hull around boundary points
-    pcl::ConvexHull<PointT> convex_hull;
-    PointCloud::Ptr plane_hull(new PointCloud);
-    convex_hull.setDimension(2);
-    convex_hull.setInputCloud(plane_cloud);
-    convex_hull.reconstruct(*plane_hull);
-    PlanarPolygon plane_polygon(plane_hull->points, coeff);
+    ch_.setInputCloud(plane_cloud);
+    ch_.reconstruct(*plane_hull);
 
-    // Step 3: get points within the boundary
-    pcl::PointIndices::Ptr inner_indices(new pcl::PointIndices);
+    // Step 4: determine which points fall within the boundary (whether they
+    // belong to the plane or not does not matter)
     eppd_.setInputCloud(input_cloud);
     eppd_.setInputPlanarHull(plane_hull);
-    eppd_.segment(*inner_indices);
+    eppd_.segment(*within_boundary_indices);
 
-    auto model = ss_.getModel();
-    std::vector<double> distances;
-    model->getDistancesToModel(coeff, distances);
-    typedef boost::accumulators::tag::mean mean;
-    typedef boost::accumulators::tag::moment<2> variance;
-    boost::accumulators::accumulator_set<double, boost::accumulators::stats<mean, variance>> d;
+    // Step 5: calculate statistics
+    // Construct planar polygon
+    Eigen::Vector4f cf;
+    memcpy(&cf[0], &plane_model_coefficients->values[0], 4 * sizeof(float));
+    PlanarPolygon planar_polygon(plane_hull->points, cf);
+    using namespace boost::accumulators;
+    accumulator_set<double, stats<tag::mean, tag::moment<2>>> d;
     pcl::PointIndices inner_outliers_indices;
     pcl::PointIndices inner_inliers_indices;
-    for (const auto& i : inner_indices->indices)
+    for (const auto& i : within_boundary_indices->indices)
     {
-      d(distances[i]);
-      if (std::abs(distances[i]) > 0.01)
+      double distance = pointToPlaneDistanceSigned(input_cloud->points[i], cf);
+      d(distance);
+      if (std::abs(distance) > 0.01)
         inner_outliers_indices.indices.push_back(i);
       else
         inner_inliers_indices.indices.push_back(i);
     }
-    double var = boost::accumulators::moment<2>(d);
-    double area = computePlanarPolygonArea(plane_polygon);
-    ROS_INFO("%.5f, %.7f, %.3f", boost::accumulators::mean(d), var, area);
+    double std = sqrt(moment<2>(d));
+    double area = computePlanarPolygonArea(planar_polygon);
+    ROS_INFO("%.5f, %.7f, %.3f", mean(d), std, area);
+
     pmd_tools::PlaneFitResult fit;
-    fit.distance = coeff[3];
-    fit.variance = var;
+    fit.distance = cf[3];
+    fit.std = std;
     fit.area = area;
     fit_publisher_.publish(fit);
 
@@ -118,7 +121,7 @@ public:
     clusters.push_back(cluster1);
     pcl::copyPointCloud(*input_cloud, inner_outliers_indices, *cluster2);
     clusters.push_back(cluster2);
-    polygon_visualizer_.publish(plane_polygon);
+    polygon_visualizer_.publish(planar_polygon);
     cluster_visualizer_.publish<PointT>(clusters);
   }
 
@@ -180,6 +183,7 @@ private:
   pcl::ExtractPolygonalPrismData<PointT> eppd_;
   pcl::ProjectInliers<PointT> pi_;
   pcl::RadiusOutlierRemoval<PointT> ror_;
+  pcl::ConvexHull<PointT> ch_;
 
   PlanarPolygonVisualizer polygon_visualizer_;
   ClusteredPointCloudVisualizer cluster_visualizer_;
