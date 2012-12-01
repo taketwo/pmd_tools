@@ -22,7 +22,7 @@
 #include "aliases.h"
 #include <planar_polygon_visualizer.h>
 #include <clustered_point_cloud_visualizer.h>
-#include <pmd_tools/PlaneFit.h>
+#include <pmd_tools/PlaneFitResult.h>
 
 using namespace hbrs::visualization;
 
@@ -44,7 +44,7 @@ public:
     ror_.setMinNeighborsInRadius(16);
     pi_.setModelType(pcl::SACMODEL_NORMAL_PLANE);
     points_subscriber_ = nh_.subscribe<sensor_msgs::PointCloud2>("/camera/points", 1, boost::bind(&PlaneFitNode::pointsCallback, this, _1));
-    fit_publisher_ = nh_.advertise<pmd_tools::PlaneFit>("fit", 10);
+    fit_publisher_ = nh_.advertise<pmd_tools::PlaneFitResult>("fit", 10);
   }
 
   void pointsCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
@@ -104,7 +104,7 @@ public:
     double var = boost::accumulators::moment<2>(d);
     double area = computePlanarPolygonArea(plane_polygon);
     ROS_INFO("%.5f, %.7f, %.3f", boost::accumulators::mean(d), var, area);
-    pmd_tools::PlaneFit fit;
+    pmd_tools::PlaneFitResult fit;
     fit.distance = coeff[3];
     fit.variance = var;
     fit.area = area;
