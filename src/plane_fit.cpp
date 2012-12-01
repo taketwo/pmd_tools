@@ -52,24 +52,24 @@ public:
     // Step 1: fit a plane
     PointCloud::Ptr input_cloud(new PointCloud);
     pcl::fromROSMsg(*msg, *input_cloud);
-    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
-    pcl::PointIndices::Ptr plane_inliers(new pcl::PointIndices);
+    pcl::ModelCoefficients::Ptr plane_coefficients(new pcl::ModelCoefficients);
+    pcl::PointIndices::Ptr plane_model_inliers_indices(new pcl::PointIndices);
     ss_.setInputCloud(input_cloud);
-    ss_.segment(*plane_inliers, *coefficients);
-    if (plane_inliers->indices.size() == 0)
+    ss_.segment(*plane_model_inliers_indices, *plane_coefficients);
+    if (plane_model_inliers_indices->indices.size() == 0)
       return;
-    PointCloud::Ptr filtered_inliers_cloud(new PointCloud);
+    PointCloud::Ptr filtered_plane_model_inliers_cloud(new PointCloud);
     ror_.setInputCloud(input_cloud);
-    ror_.setIndices(plane_inliers);
-    ror_.filter(*filtered_inliers_cloud);
+    ror_.setIndices(plane_model_inliers_indices);
+    ror_.filter(*filtered_plane_model_inliers_cloud);
     Eigen::Vector4f coeff;
-    memcpy(&coeff[0], &coefficients->values[0], coefficients->values.size() * sizeof(coefficients->values[0]));
+    memcpy(&coeff[0], &plane_coefficients->values[0], plane_coefficients->values.size() * sizeof(plane_coefficients->values[0]));
 
     // Step 2: compute boundary points (convex hull)
     PointCloud::Ptr plane_cloud(new PointCloud);
-    pi_.setInputCloud(filtered_inliers_cloud);
-    //pi_.setIndices(plane_inliers);
-    pi_.setModelCoefficients(coefficients);
+    pi_.setInputCloud(filtered_plane_model_inliers_cloud);
+    //pi_.setIndices(plane_model_inliers_indices);
+    pi_.setModelCoefficients(plane_coefficients);
     pi_.filter(*plane_cloud);
     // Compute convex hull around boundary points
     pcl::ConvexHull<PointT> convex_hull;
@@ -91,15 +91,15 @@ public:
     typedef boost::accumulators::tag::mean mean;
     typedef boost::accumulators::tag::moment<2> variance;
     boost::accumulators::accumulator_set<double, boost::accumulators::stats<mean, variance>> d;
-    pcl::PointIndices inner_outlier_indices;
-    pcl::PointIndices inner_inlier_indices;
+    pcl::PointIndices inner_outliers_indices;
+    pcl::PointIndices inner_inliers_indices;
     for (const auto& i : inner_indices->indices)
     {
       d(distances[i]);
       if (std::abs(distances[i]) > 0.01)
-        inner_outlier_indices.indices.push_back(i);
+        inner_outliers_indices.indices.push_back(i);
       else
-        inner_inlier_indices.indices.push_back(i);
+        inner_inliers_indices.indices.push_back(i);
     }
     double var = boost::accumulators::moment<2>(d);
     double area = computePlanarPolygonArea(plane_polygon);
@@ -114,15 +114,39 @@ public:
     std::vector<PointCloud::Ptr> clusters;
     PointCloud::Ptr cluster1(new PointCloud);
     PointCloud::Ptr cluster2(new PointCloud);
-    pcl::copyPointCloud(*input_cloud, inner_inlier_indices, *cluster1);
+    pcl::copyPointCloud(*input_cloud, inner_inliers_indices, *cluster1);
     clusters.push_back(cluster1);
-    pcl::copyPointCloud(*input_cloud, inner_outlier_indices, *cluster2);
+    pcl::copyPointCloud(*input_cloud, inner_outliers_indices, *cluster2);
     clusters.push_back(cluster2);
     polygon_visualizer_.publish(plane_polygon);
     cluster_visualizer_.publish<PointT>(clusters);
   }
 
 private:
+
+  PlanarPolygonPtr computeBoundary(const PointCloud::Ptr& cloud, const pcl::PointIndices::Ptr& inliers_indices, const pcl::ModelCoefficients::Ptr& coefficients)
+  {
+    // Remove noisy points on the boundary with RadiusOutlierRemoval
+    PointCloud::Ptr filtered_inliers_cloud(new PointCloud);
+    ror_.setInputCloud(cloud);
+    ror_.setIndices(inliers_indices);
+    ror_.filter(*filtered_inliers_cloud);
+    // Project inliers on the plane
+    PointCloud::Ptr plane_cloud(new PointCloud);
+    pi_.setInputCloud(filtered_inliers_cloud);
+    pi_.setModelCoefficients(coefficients);
+    pi_.filter(*plane_cloud);
+    // Compute convex hull around inliers
+    pcl::ConvexHull<PointT> convex_hull;
+    PointCloud::Ptr plane_hull(new PointCloud);
+    convex_hull.setDimension(2);
+    convex_hull.setInputCloud(plane_cloud);
+    convex_hull.reconstruct(*plane_hull);
+    // Construct planar polygon
+    Eigen::Vector4f cf;
+    memcpy(&cf[0], &coefficients->values[0], coefficients->values.size() * sizeof(coefficients->values[0]));
+    return boost::make_shared<PlanarPolygon>(plane_hull->points, cf);
+  }
 
   double computePlanarPolygonArea(const PlanarPolygon& polygon)
   {
