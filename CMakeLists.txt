@@ -11,6 +11,7 @@ set(ROS_BUILD_TYPE Debug)
 
 rosbuild_init()
 rosbuild_genmsg()
+rosbuild_add_boost_directories()
 
 #...: compiler options :........................................................
 
@@ -39,6 +40,15 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 #...: target executables :......................................................
 
 #...: plane_fit
-rosbuild_add_executable(plane_fit
-  src/plane_fit.cpp
+#rosbuild_add_executable(plane_fit
+  #src/plane_fit.cpp
+#)
+
+#...: saturation_filter
+rosbuild_add_executable(saturation_filter
+  nodes/saturation_filter.cpp
+)
+rosbuild_link_boost(saturation_filter
+  system
+  signals
 )
