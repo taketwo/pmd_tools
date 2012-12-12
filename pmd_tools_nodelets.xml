@@ -1,0 +1,9 @@
+<library path="lib/libpmd_tools_nodelet">
+
+  <class name="pmd_tools/saturation_filter" type="pmd_tools::SaturationFilterNodelet" base_class_type="nodelet::Nodelet">
+    <description>
+      Saturation filter nodelet.
+    </description>
+  </class>
+
+</library>

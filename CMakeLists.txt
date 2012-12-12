@@ -13,6 +13,12 @@ rosbuild_init()
 rosbuild_genmsg()
 rosbuild_add_boost_directories()
 
+#...: dynamic reconfigure :.....................................................
+
+rosbuild_find_ros_package(dynamic_reconfigure)
+include(${dynamic_reconfigure_PACKAGE_PATH}/cmake/cfgbuild.cmake)
+gencfg()
+
 #...: compiler options :........................................................
 
 #...: gnu++0x
@@ -37,6 +43,17 @@ set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
+#...: target libraries :........................................................
+
+#...: pmd_tools_nodelet
+rosbuild_add_library(pmd_tools_nodelet
+  src/saturation_filter_nodelet.cpp
+)
+rosbuild_link_boost(pmd_tools_nodelet
+  system
+  signals
+)
+
 #...: target executables :......................................................
 
 #...: plane_fit
@@ -45,10 +62,10 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 #)
 
 #...: saturation_filter
-rosbuild_add_executable(saturation_filter
-  nodes/saturation_filter.cpp
-)
-rosbuild_link_boost(saturation_filter
-  system
-  signals
-)
+#rosbuild_add_executable(saturation_filter
+  #nodes/saturation_filter.cpp
+#)
+#rosbuild_link_boost(saturation_filter
+  #system
+  #signals
+#)
