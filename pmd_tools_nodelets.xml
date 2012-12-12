@@ -6,4 +6,10 @@
     </description>
   </class>
 
+  <class name="pmd_tools/image_histogram" type="pmd_tools::ImageHistogramNodelet" base_class_type="nodelet::Nodelet">
+    <description>
+      Image histogram nodelet.
+    </description>
+  </class>
+
 </library>

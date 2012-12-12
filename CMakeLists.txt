@@ -43,15 +43,31 @@ set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
+#...: gsl :.....................................................................
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(gsl REQUIRED gsl)
+
 #...: target libraries :........................................................
 
 #...: pmd_tools_nodelet
 rosbuild_add_library(pmd_tools_nodelet
   src/saturation_filter_nodelet.cpp
+  src/image_histogram_nodelet.cpp
 )
 rosbuild_link_boost(pmd_tools_nodelet
   system
   signals
+)
+target_link_libraries(pmd_tools_nodelet
+  ${gsl_LIBRARIES}
+)
+
+#...: target executables :......................................................
+
+#...: image_histogram_node
+rosbuild_add_executable(image_histogram_node
+  src/image_histogram_node.cpp
 )
 
 #...: target executables :......................................................

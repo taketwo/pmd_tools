@@ -14,6 +14,8 @@
   <depend package="pmd_camboard_nano"/>
   <depend package="hbrs_visualization"/>
 
+  <rosdep name="libgsl"/>
+
   <export>
     <nodelet plugin="${prefix}/pmd_tools_nodelets.xml"/>
   </export>
