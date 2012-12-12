@@ -23,13 +23,14 @@
 
 #include <ros/ros.h>
 #include <ros/console.h>
-#include <nodelet/nodelet.h>
-#include <sensor_msgs/Image.h>
-#include <sensor_msgs/image_encodings.h>
 #include <dynamic_reconfigure/server.h>
+#include <nodelet/nodelet.h>
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/exact_time.h>
+#include <sensor_msgs/Image.h>
+#include <sensor_msgs/image_encodings.h>
+#include <std_msgs/UInt32.h>
 
 #include <pmd_tools/SaturationFilterConfig.h>
 
@@ -58,6 +59,7 @@ private:
 
     // Advertise topics
     depth_filtered_publisher_ = nh.advertise<sensor_msgs::Image>("depth/filtered", 1);
+    saturated_fixels_publisher_ = pn.advertise<std_msgs::UInt32>("saturated_pixels", 1);
 
     // Setup dynamic reconfigure server
     reconfigure_server_.reset(new ReconfigureServer(pn));
@@ -100,7 +102,9 @@ private:
         }
       }
     }
-    NODELET_INFO("Removed %zu saturated pixels", rc);
+    std_msgs::UInt32 pixels_msg;
+    pixels_msg.data = rc;
+    saturated_fixels_publisher_.publish(pixels_msg);
     depth_filtered_publisher_.publish(msg);
   }
 
@@ -118,6 +122,7 @@ private:
   message_filters::Subscriber<sensor_msgs::Image> depth_subscriber_;
   message_filters::Subscriber<sensor_msgs::Image> amplitude_subscriber_;
   Synchronizer synchronizer_;
+  ros::Publisher saturated_fixels_publisher_;
   ros::Publisher depth_filtered_publisher_;
 
   typedef dynamic_reconfigure::Server<pmd_tools::SaturationFilterConfig> ReconfigureServer;
