@@ -118,7 +118,6 @@ private:
   typedef message_filters::sync_policies::ExactTime<sensor_msgs::Image, sensor_msgs::Image> SyncPolicy;
   typedef message_filters::Synchronizer<SyncPolicy> Synchronizer;
 
-  ros::NodeHandle nh_;
   message_filters::Subscriber<sensor_msgs::Image> depth_subscriber_;
   message_filters::Subscriber<sensor_msgs::Image> amplitude_subscriber_;
   Synchronizer synchronizer_;
