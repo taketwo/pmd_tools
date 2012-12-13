@@ -86,6 +86,13 @@
           respawn="$(arg respawn)">
     </node>
 
+    <!-- Image histogram -->
+    <node pkg="nodelet" type="nodelet" name="distance_histogram" output="screen"
+          args="load pmd_tools/image_histogram /$(arg manager)"
+          respawn="$(arg respawn)">
+          <remap from="image" to="distance/image"/>
+    </node>
+
     <!-- XYZ point cloud (optional) -->
     <node if="$(arg points)"
           pkg="nodelet" type="nodelet" name="points"
