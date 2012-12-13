@@ -22,10 +22,13 @@
  ******************************************************************************/
 
 #include <cstdio>
+#include <sstream>
+
 #include <ros/ros.h>
 #include <ros/console.h>
 #include <nodelet/nodelet.h>
 #include <sensor_msgs/Image.h>
+#include <sensor_msgs/CompressedImage.h>
 #include <sensor_msgs/image_encodings.h>
 
 #include <gsl/gsl_histogram.h>
@@ -46,8 +49,6 @@ public:
   {
     if (histogram_)
       gsl_histogram_free(histogram_);
-    if (gnuplot_)
-      fclose(gnuplot_);
   }
 
 private:
@@ -55,66 +56,110 @@ private:
   virtual void onInit()
   {
     ros::NodeHandle& nh = getNodeHandle();
-    //ros::NodeHandle& pn = getPrivateNodeHandle();
+    ros::NodeHandle& pn = getPrivateNodeHandle();
+
+    // Subscribe to topics
     image_subscriber_ = nh.subscribe("image", 1, &ImageHistogramNodelet::imageCallback, this);
 
-    gnuplot_ = popen("gnuplot -rv -persist -noraise >gnuplot.log 2>gnuplot.err", "we");
-    if (!gnuplot_)
-    {
-      ROS_ERROR("Failed to open pipe to Gnuplot. No visualization!");
-    }
-    else
-    {
-      fprintf(gnuplot_, "set xlabel \"Distance\"\n");
-      fprintf(gnuplot_, "set ylabel \"Samples\"\n");
-      fprintf(gnuplot_, "set grid\n");
-      fprintf(gnuplot_, "set boxwidth 0.95 relative\n");
-      fprintf(gnuplot_, "set style fill transparent solid 0.8 noborder\n");
-    }
-
-    size_t bins = 10;
-    double min = 0.0;
-    double max = 10.24;
-    histogram_ = gsl_histogram_alloc(bins);
-    gsl_histogram_set_ranges_uniform(histogram_, min, max);
-
     // Advertise topics
-    //depth_filtered_publisher_ = nh.advertise<sensor_msgs::Image>("depth/filtered", 1);
-    //saturated_fixels_publisher_ = pn.advertise<std_msgs::UInt32>("saturated_pixels", 1);
+    histogram_image_publisher_ = pn.advertise<sensor_msgs::CompressedImage>("compressed", 1);
+
+    // Retrieve parameters from server
+    int num_bins;
+    double min;
+    double max;
+    pn.param<int>("num_bins", num_bins, 30);
+    pn.param<double>("min", min, 0.0);
+    pn.param<double>("max", max, 3.0);
+
+    // Initialize histogram
+    histogram_ = gsl_histogram_alloc(num_bins);
+    gsl_histogram_set_ranges_uniform(histogram_, min, max);
   }
 
   void imageCallback(const sensor_msgs::ImageConstPtr& msg)
   {
-    size_t missed = 0;
     if (msg->encoding != sensor_msgs::image_encodings::TYPE_32FC1)
     {
-      NODELET_WARN("Image should be encoded in 32FC1.");
+      NODELET_WARN("Unsupported image encoding, should be 32FC1.");
       return;
     }
+
+    // Construct histogram
+    size_t outliers = 0;
     const float* data = reinterpret_cast<const float*>(&msg->data[0]);
     gsl_histogram_reset(histogram_);
     for (size_t i = 0; i < msg->width * msg->height; i++)
     {
-      if (gsl_histogram_increment(histogram_, *data++))
-        missed++;
+      float d = *data++;
+      if (std::isnan(d))
+        continue;
+      if (gsl_histogram_increment(histogram_, d))
+        outliers++;
     }
-    //depth_filtered_publisher_.publish(msg);
-    if (gnuplot_)
+
+    // Plot and publish histogram if there are subscribers
+    if (histogram_image_publisher_.getNumSubscribers() > 0)
     {
-      NODELET_INFO("NEW DATA");
-      fprintf(gnuplot_, "plot '-' u (($1+$2)/2.0):3 w boxes lc rgb\"#4B0082\" notitle\n");
-      gsl_histogram_fprintf(gnuplot_, histogram_, "%g", "%g");
-      fprintf(gnuplot_, "E\n");
+      sensor_msgs::CompressedImagePtr msg = boost::make_shared<sensor_msgs::CompressedImage>();
+      if (plotHistogram(histogram_, msg))
+        histogram_image_publisher_.publish(msg);
     }
   }
 
 private:
 
-  ros::Subscriber image_subscriber_;
-  //ros::Publisher saturated_fixels_publisher_;
-  //ros::Publisher depth_filtered_publisher_;
+  bool plotHistogram(gsl_histogram* hist, sensor_msgs::CompressedImagePtr msg)
+  {
+    // Create a Gnuplot script in a temporary file
+    char tmp_filename[L_tmpnam];
+    tmpnam(tmp_filename);
+    FILE* script = fopen(tmp_filename, "w");
+    fprintf(script, "set term png truecolor\n"
+                    "set xlabel \"Distance\"\n"
+                    "set ylabel \"Samples\"\n"
+                    "set yrange [0:15000]\n"
+                    "set grid\n"
+                    "set boxwidth 0.95 relative\n"
+                    "set style fill transparent solid 0.8 noborder\n"
+                    "plot '-' u (($1+$2)/2.0):3 w boxes lc rgb\"#4B0082\" notitle\n");
 
-  FILE* gnuplot_;
+    // Push the histogram data in the file
+    gsl_histogram_fprintf(script, hist, "%g", "%g");
+    fclose(script);
+
+    // Invoke Gnuplot with created script
+    std::stringstream cmd;
+    cmd << "gnuplot " << tmp_filename;
+    FILE* gnuplot = popen(cmd.str().c_str(), "r");
+    if (gnuplot)
+    {
+      // Fill ROS message with Gnuplot output
+      static size_t max_size = 15000;
+      msg->data.reserve(max_size);
+      while (!ros::isShuttingDown() && !feof(gnuplot))
+        msg->data.push_back(fgetc(gnuplot));
+
+      // If the default space limit was exceeded, increase it for future
+      if (msg->data.size() > max_size)
+        max_size = msg->data.size();
+
+      // Set format and cleanup
+      msg->format = "png";
+      pclose(gnuplot);
+    }
+    else
+    {
+      ROS_ERROR_ONCE("Failed to open pipe to Gnuplot.");
+    }
+
+    remove(tmp_filename);
+    return (bool)gnuplot;
+  }
+
+  ros::Subscriber image_subscriber_;
+  ros::Publisher histogram_image_publisher_;
+
   gsl_histogram* histogram_;
 
 };
