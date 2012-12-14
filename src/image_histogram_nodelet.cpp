@@ -76,12 +76,13 @@ private:
     pn.param<int>("bins", bins, 30);
     pn.param<double>("min", min, 0.0);
     pn.param<double>("max", max, 3.0);
-    pn.param<std::string>("x_label", x_label_, "Value");
-    pn.param<std::string>("y_label", y_label_, "Samples");
 
     // Initialize histogram
     histogram_ = gsl_histogram_alloc(bins);
     gsl_histogram_set_ranges_uniform(histogram_, min, max);
+
+    // Prepare Gnuplot script
+    buildGnuplotScript();
   }
 
   void imageCallback(const sensor_msgs::ImageConstPtr& msg)
@@ -144,22 +145,42 @@ private:
 
 private:
 
+  void buildGnuplotScript()
+  {
+    ros::NodeHandle& pn = getPrivateNodeHandle();
+
+    std::string x_label;
+    std::string y_label;
+    std::string y_range;
+    std::string color;
+    pn.param<std::string>("x_label", x_label, "Value");
+    pn.param<std::string>("y_label", y_label, "Samples");
+    pn.param<std::string>("y_range", y_range, "0:15000");
+    pn.param<std::string>("color", color, "#4B0082");
+
+    if (y_range == "auto")
+      y_range = "";
+    else
+      y_range = (boost::format("set yrange [%s]\n") % y_range).str();
+
+    gnuplot_script_ = (boost::format("set term png truecolor\n"
+                                     "set xlabel \"%s\"\n"
+                                     "set ylabel \"%s\"\n"
+                                     "%s"
+                                     "set grid\n"
+                                     "set boxwidth 0.95 relative\n"
+                                     "set style fill transparent solid 0.8 noborder\n"
+                                     "plot '-' u (($1+$2)/2.0):3 w boxes lc rgb\"%s\" notitle\n")
+                                     % x_label % y_label % y_range % color).str();
+  }
+
   bool plotHistogram(gsl_histogram* hist, sensor_msgs::CompressedImagePtr msg)
   {
-    static boost::format script_fmt("set term png truecolor\n"
-                                    "set xlabel \"%s\"\n"
-                                    "set ylabel \"%s\"\n"
-                                    "set yrange [0:15000]\n"
-                                    "set grid\n"
-                                    "set boxwidth 0.95 relative\n"
-                                    "set style fill transparent solid 0.8 noborder\n"
-                                    "plot '-' u (($1+$2)/2.0):3 w boxes lc rgb\"#4B0082\" notitle\n");
-
     // Create a Gnuplot script in a temporary file
     char tmp_filename[L_tmpnam];
     tmpnam(tmp_filename);
     FILE* script = fopen(tmp_filename, "w");
-    fputs(boost::str(script_fmt % x_label_ % y_label_).c_str(), script);
+    fputs(gnuplot_script_.c_str(), script);
 
     // Push the histogram data in the file
     gsl_histogram_fprintf(script, hist, "%g", "%g");
@@ -198,8 +219,7 @@ private:
   ros::Publisher histogram_image_publisher_;
   ros::Publisher histogram_publisher_;
 
-  std::string x_label_;
-  std::string y_label_;
+  std::string gnuplot_script_;
 
   gsl_histogram* histogram_;
 
