@@ -80,17 +80,39 @@
           <remap from="image_rect" to="amplitude/image_rect"/>
     </node>
 
-    <!-- Saturation filter -->
-    <node pkg="nodelet" type="nodelet" name="saturation_filter" output="screen"
+    <!-- Saturation filter for depth image -->
+    <node pkg="nodelet" type="nodelet" name="depth_saturation_filter" output="screen"
           args="load pmd_tools/saturation_filter /$(arg manager)"
           respawn="$(arg respawn)">
     </node>
 
-    <!-- Image histogram -->
+    <!-- Saturation filter for distance image -->
+    <node pkg="nodelet" type="nodelet" name="distance_saturation_filter" output="screen"
+          args="load pmd_tools/saturation_filter /$(arg manager)"
+          respawn="$(arg respawn)">
+          <remap from="depth/image" to="distance/image"/>
+          <remap from="depth/filtered" to="distance/filtered"/>
+    </node>
+
+    <!-- Distance histogram -->
     <node pkg="nodelet" type="nodelet" name="distance_histogram" output="screen"
           args="load pmd_tools/image_histogram /$(arg manager)"
           respawn="$(arg respawn)">
-          <remap from="image" to="distance/image"/>
+          <remap from="image" to="distance/filtered"/>
+          <param name="bins" value="100" type="int"/>
+          <param name="min" value="0" type="double"/>
+          <param name="max" value="1.5" type="double"/>
+          <param name="x_label" value="Distance" type="str"/>
+    </node>
+
+    <!-- Amplitude histogram -->
+    <node pkg="nodelet" type="nodelet" name="amplitude_histogram" output="screen"
+          args="load pmd_tools/image_histogram /$(arg manager)"
+          respawn="$(arg respawn)">
+          <remap from="image" to="amplitude/image"/>
+          <param name="min" value="0" type="double"/>
+          <param name="max" value="15000" type="double"/>
+          <param name="x_label" value="Amplitude" type="str"/>
     </node>
 
     <!-- XYZ point cloud (optional) -->

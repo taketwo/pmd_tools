@@ -24,6 +24,9 @@
 #include <cstdio>
 #include <sstream>
 
+#include <boost/format.hpp>
+#include <gsl/gsl_histogram.h>
+
 #include <ros/ros.h>
 #include <ros/console.h>
 #include <nodelet/nodelet.h>
@@ -31,7 +34,7 @@
 #include <sensor_msgs/CompressedImage.h>
 #include <sensor_msgs/image_encodings.h>
 
-#include <gsl/gsl_histogram.h>
+#include <pmd_tools/Histogram.h>
 
 namespace pmd_tools
 {
@@ -60,20 +63,24 @@ private:
 
     // Subscribe to topics
     image_subscriber_ = nh.subscribe("image", 1, &ImageHistogramNodelet::imageCallback, this);
+    ROS_INFO("Subscribed to %s topic", image_subscriber_.getTopic().c_str());
 
     // Advertise topics
-    histogram_image_publisher_ = pn.advertise<sensor_msgs::CompressedImage>("compressed", 1);
+    histogram_publisher_ = pn.advertise<pmd_tools::Histogram>("histogram", 5);
+    histogram_image_publisher_ = pn.advertise<sensor_msgs::CompressedImage>("plot/compressed", 1);
 
     // Retrieve parameters from server
-    int num_bins;
+    int bins;
     double min;
     double max;
-    pn.param<int>("num_bins", num_bins, 30);
+    pn.param<int>("bins", bins, 30);
     pn.param<double>("min", min, 0.0);
     pn.param<double>("max", max, 3.0);
+    pn.param<std::string>("x_label", x_label_, "Value");
+    pn.param<std::string>("y_label", y_label_, "Samples");
 
     // Initialize histogram
-    histogram_ = gsl_histogram_alloc(num_bins);
+    histogram_ = gsl_histogram_alloc(bins);
     gsl_histogram_set_ranges_uniform(histogram_, min, max);
   }
 
@@ -85,21 +92,49 @@ private:
       return;
     }
 
+    bool need_histogram = histogram_publisher_.getNumSubscribers() > 0;
+    bool need_plot = histogram_image_publisher_.getNumSubscribers() > 0;
+
+    if (!need_histogram && !need_plot)
+      return;
+
     // Construct histogram
+    size_t samples = 0;
     size_t outliers = 0;
     const float* data = reinterpret_cast<const float*>(&msg->data[0]);
     gsl_histogram_reset(histogram_);
     for (size_t i = 0; i < msg->width * msg->height; i++)
     {
       float d = *data++;
+      // Completely skip NaNs
       if (std::isnan(d))
         continue;
+      samples++;
       if (gsl_histogram_increment(histogram_, d))
         outliers++;
     }
 
-    // Plot and publish histogram if there are subscribers
-    if (histogram_image_publisher_.getNumSubscribers() > 0)
+    // Convert histogram into ROS message and publish if someone cares
+    if (need_histogram)
+    {
+      size_t num_bins = gsl_histogram_bins(histogram_);
+      pmd_tools::HistogramPtr msg = boost::make_shared<pmd_tools::Histogram>();
+      msg->samples = samples;
+      msg->outliers = outliers;
+      msg->bins.resize(num_bins);
+      msg->limits.resize(num_bins + 1);
+      double upper;
+      for (size_t i = 0; i < num_bins; i++)
+      {
+        gsl_histogram_get_range(histogram_, i, &msg->limits[i], &upper);
+        msg->bins[i] = gsl_histogram_get(histogram_, i);
+      }
+      msg->limits[num_bins] = upper;
+      histogram_publisher_.publish(msg);
+    }
+
+    // Plot and publish histogram if someone cares
+    if (need_plot)
     {
       sensor_msgs::CompressedImagePtr msg = boost::make_shared<sensor_msgs::CompressedImage>();
       if (plotHistogram(histogram_, msg))
@@ -111,18 +146,20 @@ private:
 
   bool plotHistogram(gsl_histogram* hist, sensor_msgs::CompressedImagePtr msg)
   {
+    static boost::format script_fmt("set term png truecolor\n"
+                                    "set xlabel \"%s\"\n"
+                                    "set ylabel \"%s\"\n"
+                                    "set yrange [0:15000]\n"
+                                    "set grid\n"
+                                    "set boxwidth 0.95 relative\n"
+                                    "set style fill transparent solid 0.8 noborder\n"
+                                    "plot '-' u (($1+$2)/2.0):3 w boxes lc rgb\"#4B0082\" notitle\n");
+
     // Create a Gnuplot script in a temporary file
     char tmp_filename[L_tmpnam];
     tmpnam(tmp_filename);
     FILE* script = fopen(tmp_filename, "w");
-    fprintf(script, "set term png truecolor\n"
-                    "set xlabel \"Distance\"\n"
-                    "set ylabel \"Samples\"\n"
-                    "set yrange [0:15000]\n"
-                    "set grid\n"
-                    "set boxwidth 0.95 relative\n"
-                    "set style fill transparent solid 0.8 noborder\n"
-                    "plot '-' u (($1+$2)/2.0):3 w boxes lc rgb\"#4B0082\" notitle\n");
+    fputs(boost::str(script_fmt % x_label_ % y_label_).c_str(), script);
 
     // Push the histogram data in the file
     gsl_histogram_fprintf(script, hist, "%g", "%g");
@@ -159,6 +196,10 @@ private:
 
   ros::Subscriber image_subscriber_;
   ros::Publisher histogram_image_publisher_;
+  ros::Publisher histogram_publisher_;
+
+  std::string x_label_;
+  std::string y_label_;
 
   gsl_histogram* histogram_;
 
