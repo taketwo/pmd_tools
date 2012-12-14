@@ -7,18 +7,9 @@ import roslib
 roslib.load_manifest(PACKAGE)
 import rospy
 
-import dynamic_reconfigure.client
 from pmd_tools.msg import Histogram
 from std_srvs.srv import Empty
-
-
-class IntegrationTime:
-    def __init__(self):
-        self.client = dynamic_reconfigure.client.Client("camera/driver",
-                                                        timeout=1)
-
-    def get(self):
-        return self.client.get_configuration()['integration_time']
+from integration_time import IntegrationTime
 
 
 class StoreDataNode:
@@ -26,17 +17,23 @@ class StoreDataNode:
         self.hist_sub = rospy.Subscriber('/camera/distance_histogram/'
                                          'histogram', Histogram, self.hist_cb)
         self.time = IntegrationTime()
+        self.find_threshold = rospy.ServiceProxy('/desaturator/find_threshold',
+                                                 Empty)
         self.save_srv = rospy.Service('~save', Empty, self.save_cb)
-        self.data = open('calib.dat', 'w')
+        self.data = open('calibration.dat', 'a')
+        #self.timer = rospy.Timer(rospy.Duration(5), self.timer_cb)
 
     def hist_cb(self, msg):
         for b, l in zip(msg.bins, msg.limits):
             if b > 10:
                 self.current = (l, self.time.get())
-                rospy.loginfo('Distance %.3f, time %i' % self.current)
                 return
 
+    #def timer_cb(self, event):
     def save_cb(self, req):
+        rospy.loginfo('Finding threshold...')
+        self.find_threshold()
+        rospy.loginfo('Done, saving %.3f -- %i' % (self.current))
         self.data.write('%.3f %i\n' % self.current)
         return []
 

@@ -7,6 +7,7 @@ import roslib
 roslib.load_manifest(PACKAGE)
 import rospy
 
+import numpy as np
 from pmd_tools.msg import Histogram
 import dynamic_reconfigure.client
 
@@ -41,7 +42,10 @@ class SaturationPID:
     def hist_cb(self, msg):
         for b, l in zip(msg.bins, msg.limits):
             if b > 10:
-                t = l * l * 12181.72 + l * 1691.55 - 174.29
+                t = np.polyval([6.58589420435121e+06, -8.45060362603123e+06,
+                                3.80706136885209e+06, -7.64806310161187e+05,
+                                9.25157270009183e+04, -4.52056517875628e+03,
+                                1.04137050228125e+02], l)
                 self.time.set(t)
                 rospy.loginfo('Distance %.3f, time %i' % (l, int(t)))
                 return
