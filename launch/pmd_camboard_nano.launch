@@ -99,10 +99,11 @@
           args="load pmd_tools/image_histogram /$(arg manager)"
           respawn="$(arg respawn)">
           <remap from="image" to="distance/filtered"/>
-          <param name="bins" value="100" type="int"/>
+          <param name="bins" value="120" type="int"/>
           <param name="min" value="0" type="double"/>
-          <param name="max" value="1.5" type="double"/>
+          <param name="max" value="1.0" type="double"/>
           <param name="x_label" value="Distance" type="str"/>
+          <param name="y_range" value="0:15000" type="str"/>
     </node>
 
     <!-- Amplitude histogram -->
@@ -113,8 +114,8 @@
           <param name="min" value="0" type="double"/>
           <param name="max" value="15000" type="double"/>
           <param name="x_label" value="Amplitude" type="str"/>
-          <param name="y_range" value="auto" type="str"/>
           <param name="color" value="#4169E1" type="str"/>
+          <param name="y_range" value="0:*" type="str"/>
     </node>
 
     <!-- XYZ point cloud (optional) -->

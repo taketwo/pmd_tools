@@ -155,18 +155,13 @@ private:
     std::string color;
     pn.param<std::string>("x_label", x_label, "Value");
     pn.param<std::string>("y_label", y_label, "Samples");
-    pn.param<std::string>("y_range", y_range, "0:15000");
+    pn.param<std::string>("y_range", y_range, "0:*");
     pn.param<std::string>("color", color, "#4B0082");
-
-    if (y_range == "auto")
-      y_range = "";
-    else
-      y_range = (boost::format("set yrange [%s]\n") % y_range).str();
 
     gnuplot_script_ = (boost::format("set term png truecolor\n"
                                      "set xlabel \"%s\"\n"
                                      "set ylabel \"%s\"\n"
-                                     "%s"
+                                     "set yrange [%s]\n"
                                      "set grid\n"
                                      "set boxwidth 0.95 relative\n"
                                      "set style fill transparent solid 0.8 noborder\n"

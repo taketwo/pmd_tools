@@ -10,6 +10,7 @@
   <depend package="nodelet"/>
   <depend package="dynamic_reconfigure"/>
   <depend package="sensor_msgs"/>
+  <depend package="std_srvs"/>
 
   <depend package="pmd_camboard_nano"/>
   <depend package="hbrs_visualization"/>
